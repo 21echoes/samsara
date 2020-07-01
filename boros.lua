@@ -9,6 +9,7 @@
 -- K2: Start/pause
 -- K3: Arm/disarm recording
 -- K2+tap K3: Tap tempo
+-- K1+K2+K3: clear buffer (coming soon!)
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
@@ -24,6 +25,7 @@ local modified_level_params = {
 }
 local initial_levels = {}
 local tap_tempo = TapTempo.new()
+local key_states = {0, 0, 0}
 
 function init()
   init_params()
@@ -109,6 +111,13 @@ function enc(n, delta)
 end
 
 function key(n, z)
+  -- All keys down means clear the buffer
+  key_states[n] = z
+  if key_states[1] == 1 and key_states[2] == 1 and key_states[3] == 1 then
+    softcut.buffer_clear()
+    return
+  end
+
   -- Hold K2 + Tap K3 means tap tempo
   local tempo, short_circuit_value = tap_tempo:key(n, z)
   if tempo and params:get("clock_source") == 1 then
