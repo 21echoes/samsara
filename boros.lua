@@ -8,14 +8,15 @@
 -- E3: Record mode (loop/one-shot/extend) (coming soon!)
 -- K2: Start/pause
 -- K3: Arm/disarm recording
--- K2+tap K3: Tap tempo
--- K1+K2+K3: clear buffer (coming soon!)
+-- Hold K2+tap K3: Tap tempo
+-- Hold K1+tap K3: Clear buffer
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
 
 local playing = 1
 local rec_level = 1.0
+local held_key
 local modified_level_params = {
   "cut_input_adc",
   "cut_input_eng",
@@ -25,7 +26,6 @@ local modified_level_params = {
 }
 local initial_levels = {}
 local tap_tempo = TapTempo.new()
-local key_states = {0, 0, 0}
 
 function init()
   init_params()
@@ -111,11 +111,16 @@ function enc(n, delta)
 end
 
 function key(n, z)
-  -- All keys down means clear the buffer
-  key_states[n] = z
-  if key_states[1] == 1 and key_states[2] == 1 and key_states[3] == 1 then
-    softcut.buffer_clear()
-    return
+  if z == 1 then
+    if held_key == nil then
+      held_key = n
+    elseif held_key == 1 and n == 3 then
+      softcut.buffer_clear()
+      redraw()
+      return
+    end
+  elseif held_key == n and z == 0 then
+    held_key = nil
   end
 
   -- Hold K2 + Tap K3 means tap tempo
@@ -124,6 +129,7 @@ function key(n, z)
     params:set("clock_tempo", tempo)
   end
   if short_circuit_value ~= nil then
+    redraw()
     return short_circuit_value
   end
 
