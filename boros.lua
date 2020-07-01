@@ -5,7 +5,7 @@
 -- E1: Number of beats
 -- K2+E1: Tempo
 -- E2: Loop preservation
--- E3: Record mode (loop/one-shot/extend) (coming soon!)
+-- E3: Rec. mode (loop/one-shot)
 -- K2: Start/pause
 -- K3: Arm/disarm recording
 -- Hold K2+tap K3: Tap tempo
@@ -16,6 +16,10 @@ local TapTempo = include("lib/tap_tempo")
 
 local playing = 1
 local rec_level = 1.0
+local prior_record_mode = 1
+local one_shot_metro
+local tap_tempo = TapTempo.new()
+local loop_dur
 local held_key
 local modified_level_params = {
   "cut_input_adc",
@@ -25,7 +29,6 @@ local modified_level_params = {
   "softcut_level"
 }
 local initial_levels = {}
-local tap_tempo = TapTempo.new()
 
 function init()
   init_params()
@@ -38,7 +41,7 @@ function init_params()
     id="pre_level",
     name="Feedback",
     type="control",
-    controlspec=ControlSpec.new(0, 1, "lin", 0, 0.9, ""),
+    controlspec=ControlSpec.new(0, 1, "lin", 0, 0.95, ""),
     action=function(value) set_pre_level(value) end
   }
   params:add {
@@ -49,6 +52,14 @@ function init_params()
     max=64,
     default=8,
     action=function(value) set_num_beats(value) end
+  }
+  params:add {
+    id="record_mode",
+    name="Recording Mode",
+    type="option",
+    options={"Continuous", "One-Shot"},
+    default=1,
+    action=function(value) set_record_mode(value) end
   }
   params:add {
     id="num_input_channels",
@@ -71,6 +82,7 @@ function init_softcut()
   for i, level_param in ipairs(modified_level_params) do
     initial_levels[level_param] = params:get(level_param)
     -- Setting 0 as it's in dBs and 0 dB is unity gain / amp of 1
+    -- TODO: confirm this does what you want
     params:set(level_param, 0)
   end
 
@@ -105,7 +117,7 @@ function enc(n, delta)
   elseif n==2 then
     params:delta("pre_level", delta)
   elseif n==3 then
-    -- TODO: filter
+    params:delta("record_mode", delta)
   end
   redraw()
 end
@@ -143,9 +155,14 @@ function key(n, z)
   elseif n==3 and z==1 then
     -- K3 means toggle recording on/off
     if rec_level == 1.0 then
-      set_rec_level(0.0)
+      -- Even if we're not in one-shot, this stops recording
+      one_shot_stop()
     else
-      set_rec_level(1.0)
+      if params:get("record_mode") == 1 then
+        set_rec_level(1.0)
+      else
+        one_shot_start()
+      end
     end
   end
   -- TOOD: UI update metro
@@ -171,7 +188,7 @@ function redraw()
   screen.move(right_x, y)
   local tempo = params:get("clock_tempo")
   local num_beats = params:get("num_beats")
-  screen.text_right(math.floor(tempo+0.5).." bpm, "..num_beats.." beats")
+  screen.text_right(num_beats.." beats, "..math.floor(tempo+0.5).." bpm")
 
   y = 27
   screen.move(left_x, y)
@@ -181,7 +198,11 @@ function redraw()
   screen.text_right(string.format("%.2f", pre_level))
 
   y = 42
-  -- TODO: record mode
+  screen.move(left_x, y)
+  screen.text("mode: ")
+  screen.move(right_x, y)
+  local record_mode = params:get("record_mode")
+  screen.text_right(record_mode == 1 and "continuous" or "one-shot")
 
   y = 57
   screen.move(left_x, y)
@@ -248,11 +269,40 @@ function set_tempo(tempo)
 end
 
 function set_loop_dur(tempo, num_beats)
-  local loop_dur = (num_beats/tempo) * 60
+  loop_dur = (num_beats/tempo) * 60
   for voice=1,2 do
     softcut.loop_end(voice, loop_dur)
   end
   -- TODO: should we clear the buffer outside the loop, now? if not now, ever?
+end
+
+function set_record_mode(value)
+  local record_mode = value
+  if value == "Continuous" then record_mode = 1 elseif value == "One-Shot" then record_mode = 2 end
+  if rec_level == 1.0 and record_mode ~= prior_record_mode then
+    if record_mode == 1 and one_shot_metro then
+      metro.free(one_shot_metro.id)
+      one_shot_metro = nil
+    else
+      one_shot_start()
+    end
+  end
+  prior_record_mode = record_mode
+end
+
+function one_shot_start()
+  set_rec_level(1.0)
+  one_shot_metro = metro.init(one_shot_stop, loop_dur, 1)
+  one_shot_metro:start()
+end
+
+function one_shot_stop()
+  set_rec_level(0.0)
+  if one_shot_metro then
+    metro.free(one_shot_metro.id)
+    one_shot_metro = nil
+  end
+  redraw()
 end
 
 function set_num_input_channels(value)
@@ -271,3 +321,17 @@ function set_num_input_channels(value)
   end
 end
 
+function cleanup()
+  if one_shot_metro then
+    metro.free(one_shot_metro.id)
+    one_shot_metro = nil
+  end
+  tap_tempo = nil
+
+  -- Restore prior levels
+  for level_param, level in ipairs(initial_levels) do
+    params:set(level_param, level)
+  end
+  modified_level_params = nil
+  initial_levels = nil
+end
