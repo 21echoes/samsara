@@ -4,7 +4,7 @@
 --
 -- E1: Number of beats
 -- K2+E1: Tempo
--- E2: Loop preservation
+-- E2: Loop preserve rate
 -- E3: Rec. mode (loop/one-shot)
 -- K2: Start/pause
 -- K3: Arm/disarm recording
@@ -117,6 +117,10 @@ function enc(n, delta)
       params:delta("num_beats", delta)
     end
   elseif n==2 then
+    local pre_level = params:get("pre_level")
+    if pre_level >= 0.9 then
+      delta = delta/2
+    end
     params:delta("pre_level", delta)
   elseif n==3 then
     params:delta("record_mode", delta)
@@ -209,7 +213,11 @@ function redraw()
   screen.text("preserve: ")
   screen.move(right_x, y)
   local pre_level = params:get("pre_level")
-  screen.text_right(string.format("%.2f", pre_level))
+  if pre_level >= 0.9 then
+    screen.text_right(string.format("%.1f", pre_level * 100).."%")
+  else
+    screen.text_right(string.format("%.0f", pre_level * 100).."%")
+  end
 
   y = 42
   screen.move(left_x, y)
