@@ -1,5 +1,6 @@
 -- Boros
--- A simple looper,
+-- A simple looper
+--  where sounds slowly decay,
 --  inspired by Dakim
 --
 -- E1: Number of beats
@@ -221,7 +222,7 @@ function redraw()
 
   y = 42
   screen.move(left_x, y)
-  screen.text("mode: ")
+  screen.text("rec mode: ")
   screen.move(right_x, y)
   local record_mode = params:get("record_mode")
   screen.text_right(record_mode == 1 and "continuous" or "one-shot")
