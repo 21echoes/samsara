@@ -135,7 +135,7 @@ function key(n, z)
       held_key = n
     elseif held_key == 1 and n == 2 then
       just_doubled_buffer = true
-      if num_beats < MAX_NUM_BEATS then
+      if params:get("num_beats") < MAX_NUM_BEATS then
         double_buffer()
       end
       redraw()
