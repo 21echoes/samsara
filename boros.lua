@@ -9,6 +9,7 @@
 -- K2: Start/pause
 -- K3: Arm/disarm recording
 -- Hold K2+tap K3: Tap tempo
+-- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
 
 local ControlSpec = require "controlspec"
@@ -29,6 +30,7 @@ local modified_level_params = {
   "softcut_level"
 }
 local initial_levels = {}
+local MAX_NUM_BEATS = 64
 
 function init()
   init_params()
@@ -49,7 +51,7 @@ function init_params()
     name="Num Beats",
     type="number",
     min=1,
-    max=64,
+    max=MAX_NUM_BEATS,
     default=8,
     action=function(value) set_num_beats(value) end
   }
@@ -122,10 +124,18 @@ function enc(n, delta)
   redraw()
 end
 
+local just_doubled_buffer = false
 function key(n, z)
   if z == 1 then
     if held_key == nil then
       held_key = n
+    elseif held_key == 1 and n == 2 then
+      just_doubled_buffer = true
+      if num_beats < MAX_NUM_BEATS then
+        double_buffer()
+      end
+      redraw()
+      return
     elseif held_key == 1 and n == 3 then
       softcut.buffer_clear()
       redraw()
@@ -147,6 +157,10 @@ function key(n, z)
 
   -- For K2 we listen to key-up (key-down starts alt mode)
   if n==2 and z==0 then
+    if just_doubled_buffer then
+      just_doubled_buffer = false
+      return
+    end
     if playing == 1 then
       set_playing(0)
     else
@@ -334,4 +348,16 @@ function cleanup()
   end
   modified_level_params = nil
   initial_levels = nil
+end
+
+function double_buffer()
+  -- Duplicate the buffer immediately after the current buffer ends
+  local full_path = "/home/we/dust/code/boros/boros-tmp.wav"
+  softcut.buffer_write_stereo(full_path, 0, loop_dur)
+  softcut.buffer_read_stereo(full_path, 0, loop_dur, loop_dur)
+  local num_beats = params:get("num_beats")
+  params:set("num_beats", num_beats * 2)
+  -- Sleep is there because it takes a bit for the file system to recognize the file exists
+  -- Also, os.remove doesn't work...
+  os.execute("sleep 0.2; rm "..full_path)
 end
