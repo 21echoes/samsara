@@ -2,6 +2,8 @@
 
 Samsara is a minimalist looper that, given enough time, reaches nirvana.
 
+![board](screenshots/samsara.png)
+
 Inspired by [Dakim](https://www.youtube.com/watch?v=AmQ7AMnooj0), Samsara invites you to slowly layer in new material as old material fades away. Toggle recording on and off easily while the loop plays, or use one-shot record mode to precisely record a single phrase. The loop duration is set in terms of tempo & beats, making it simple to integrate into other musical contexts (it uses norns' clock system, so you can use MIDI clock & transport messages, Ableton Link, or Crow). Tap tempo is also available via K2+K3.
 
 You can also easily extend the loop. Say you have an awesome 1-bar drum pattern, and now you want to add harmonic content. Your harmonic phrase is probably longer than that one bar, so just hold K1 and tap K2 to double to two bars, and then again to double to four bars. Now you can layer a 4-bar harmonic phrase on top of that original 1-bar drum loop and keep everything moving.
