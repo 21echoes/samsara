@@ -1,17 +1,17 @@
--- Boros
+-- Samsara
 -- A simple looper
---  where sounds slowly decay,
---  inspired by Dakim
+--  where sounds slowly decay
 --
 -- E1: Number of beats
--- K2+E1: Tempo
+-- Hold K2+turn E1: Tempo
 -- E2: Loop preserve rate
 -- E3: Rec. mode (loop/one-shot)
--- K2: Start/pause
+-- K2: Start/pause playback
 -- K3: Arm/disarm recording
 -- Hold K2+tap K3: Tap tempo
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
+--
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
@@ -361,7 +361,7 @@ end
 
 function double_buffer()
   -- Duplicate the buffer immediately after the current buffer ends
-  local full_path = "/home/we/dust/code/boros/boros-tmp.wav"
+  local full_path = "/home/we/dust/code/samsara/tmp.wav"
   softcut.buffer_write_stereo(full_path, 0, loop_dur)
   softcut.buffer_read_stereo(full_path, 0, loop_dur, loop_dur)
   local num_beats = params:get("num_beats")
