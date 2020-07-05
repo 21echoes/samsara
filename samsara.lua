@@ -15,12 +15,14 @@
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
+local Alert = include("lib/alert")
 
 local playing = 1
 local rec_level = 1.0
 local prior_record_mode = 1
 local one_shot_metro
 local tap_tempo = TapTempo.new()
+local tap_tempo_square
 local loop_dur
 local held_key
 local modified_level_params = {
@@ -35,6 +37,8 @@ local MAX_NUM_BEATS = 64
 local SCREEN_FRAMERATE = 15
 local screen_refresh_metro
 local is_screen_dirty = false
+local alert
+local alert_dismiss_metro
 
 function init()
   init_params()
@@ -123,8 +127,12 @@ end
 function enc(n, delta)
   if n==1 then
     -- We're using tap_tempo:is_in_tap_tempo_mode as our general "alt mode"
-    if tap_tempo:is_in_tap_tempo_mode() and params:get("clock_source") == 1 then
-      params:delta("clock_tempo", delta)
+    if tap_tempo:is_in_tap_tempo_mode() then
+      if params:get("clock_source") == 1 then
+        params:delta("clock_tempo", delta)
+      else
+        show_external_clock_alert()
+      end
     else
       params:delta("num_beats", delta)
     end
@@ -164,6 +172,14 @@ function key(n, z)
     params:set("clock_tempo", tempo)
   end
   if short_circuit_value ~= nil then
+    if n == 3 and z == 1 then
+      if params:get("clock_source") == 1 then
+        tap_tempo_square = util.time()
+        is_screen_dirty = true
+      else
+        show_external_clock_alert()
+      end
+    end
     return short_circuit_value
   end
 
@@ -211,6 +227,12 @@ end
 function redraw()
   screen.clear()
 
+  if alert ~= nil then
+    alert:redraw()
+    screen.update()
+    return
+  end
+
   local left_x = 10
   local right_x = 118
   local y = 12
@@ -220,6 +242,16 @@ function redraw()
   local tempo = params:get("clock_tempo")
   local num_beats = params:get("num_beats")
   screen.text_right(num_beats.." beats, "..math.floor(tempo+0.5).." bpm")
+
+  if tap_tempo_square ~= nil then
+    if (util.time() - tap_tempo_square) < 0.125 then
+      screen.rect(121, 8, 3, 3)
+      screen.fill()
+      is_screen_dirty = true
+    else
+      tap_tempo_square = nil
+    end
+  end
 
   y = 27
   screen.move(left_x, y)
@@ -254,6 +286,26 @@ function redraw()
   end
 
   screen.update()
+end
+
+function show_external_clock_alert()
+  if alert ~= nil then
+    return
+  end
+  local source = ({"", "MIDI", "Link", "crow"})[params:get("clock_source")]
+  alert = Alert.new({"Tempo is following "..source, "", "Use params menu to change", "your clock settings"})
+  alert_dismiss_metro = metro.init(dismiss_alert, 2, 1)
+  alert_dismiss_metro:start()
+  is_screen_dirty = true
+end
+
+function dismiss_alert()
+  alert = nil
+  if alert_dismiss_metro then
+    metro.free(alert_dismiss_metro.id)
+    alert_dismiss_metro = nil
+  end
+  is_screen_dirty = true
 end
 
 function set_playing(value)
