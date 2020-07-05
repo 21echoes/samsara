@@ -425,14 +425,20 @@ function double_buffer()
 end
 
 function cleanup()
-  metro.free(screen_refresh_metro.id)
-  screen_refresh_metro = nil
-
+  if screen_refresh_metro then
+    metro.free(screen_refresh_metro.id)
+    screen_refresh_metro = nil
+  end
   if one_shot_metro then
     metro.free(one_shot_metro.id)
     one_shot_metro = nil
   end
+  if alert_dismiss_metro then
+    metro.free(alert_dismiss_metro.id)
+    alert_dismiss_metro = nil
+  end
   tap_tempo = nil
+  alert = nil
 
   -- Restore prior levels
   for level_param, level in ipairs(initial_levels) do
