@@ -32,10 +32,14 @@ local modified_level_params = {
 }
 local initial_levels = {}
 local MAX_NUM_BEATS = 64
+local SCREEN_FRAMERATE = 15
+local screen_refresh_metro
+local is_screen_dirty = false
 
 function init()
   init_params()
   init_softcut()
+  init_ui_metro()
 end
 
 function init_params()
@@ -109,6 +113,13 @@ function init_softcut()
   end
 end
 
+function init_ui_metro()
+  -- Render loop
+  screen_refresh_metro = metro.init()
+  screen_refresh_metro.event = render_loop
+  screen_refresh_metro:start(1 / SCREEN_FRAMERATE)
+end
+
 function enc(n, delta)
   if n==1 then
     -- We're using tap_tempo:is_in_tap_tempo_mode as our general "alt mode"
@@ -126,7 +137,6 @@ function enc(n, delta)
   elseif n==3 then
     params:delta("record_mode", delta)
   end
-  redraw()
 end
 
 local just_doubled_buffer = false
@@ -139,11 +149,9 @@ function key(n, z)
       if params:get("num_beats") < MAX_NUM_BEATS then
         double_buffer()
       end
-      redraw()
       return
     elseif held_key == 1 and n == 3 then
       softcut.buffer_clear()
-      redraw()
       return
     end
   elseif held_key == n and z == 0 then
@@ -156,7 +164,6 @@ function key(n, z)
     params:set("clock_tempo", tempo)
   end
   if short_circuit_value ~= nil then
-    redraw()
     return short_circuit_value
   end
 
@@ -184,8 +191,6 @@ function key(n, z)
       end
     end
   end
-  -- TOOD: UI update metro
-  redraw()
 end
 
 function clock.transport.start()
@@ -194,6 +199,13 @@ end
 
 function clock.transport.stop()
   set_playing(0)
+end
+
+function render_loop()
+  if is_screen_dirty then
+    is_screen_dirty = false
+    redraw()
+  end
 end
 
 function redraw()
@@ -256,6 +268,7 @@ function set_playing(value)
     end
     softcut.enable(voice, playing)
   end
+  is_screen_dirty = true
 end
 
 function set_rec_level(value)
@@ -265,6 +278,7 @@ function set_rec_level(value)
     -- TODO: if you want rec_level == 0 to turn off deterioration:
     -- softcut.pre_level(voice, rec_level == 0.0 and 1.0 or params:get("pre_level"))
   end
+  is_screen_dirty = true
 end
 
 function set_pre_level(pre_level)
@@ -279,6 +293,7 @@ function set_pre_level(pre_level)
     softcut.level(voice, pre_level)
     softcut.pre_level(voice, pre_level)
   end
+  is_screen_dirty = true
 end
 
 function set_num_beats(num_beats)
@@ -297,6 +312,7 @@ function set_loop_dur(tempo, num_beats)
     softcut.loop_end(voice, loop_dur)
   end
   -- TODO: should we clear the buffer outside the loop, now? if not now, ever?
+  is_screen_dirty = true
 end
 
 function set_record_mode(value)
@@ -311,6 +327,7 @@ function set_record_mode(value)
     end
   end
   prior_record_mode = record_mode
+  is_screen_dirty = true
 end
 
 function one_shot_start()
@@ -325,7 +342,6 @@ function one_shot_stop()
     metro.free(one_shot_metro.id)
     one_shot_metro = nil
   end
-  redraw()
 end
 
 function set_num_input_channels(value)
@@ -344,7 +360,22 @@ function set_num_input_channels(value)
   end
 end
 
+function double_buffer()
+  -- Duplicate the buffer immediately after the current buffer ends
+  local full_path = "/home/we/dust/code/samsara/tmp.wav"
+  softcut.buffer_write_stereo(full_path, 0, loop_dur)
+  softcut.buffer_read_stereo(full_path, 0, loop_dur, loop_dur)
+  local num_beats = params:get("num_beats")
+  params:set("num_beats", num_beats * 2)
+  -- Sleep is there because it takes a bit for the file system to recognize the file exists
+  -- Also, os.remove doesn't work...
+  os.execute("sleep 0.2; rm "..full_path)
+end
+
 function cleanup()
+  metro.free(screen_refresh_metro.id)
+  screen_refresh_metro = nil
+
   if one_shot_metro then
     metro.free(one_shot_metro.id)
     one_shot_metro = nil
@@ -357,16 +388,4 @@ function cleanup()
   end
   modified_level_params = nil
   initial_levels = nil
-end
-
-function double_buffer()
-  -- Duplicate the buffer immediately after the current buffer ends
-  local full_path = "/home/we/dust/code/samsara/tmp.wav"
-  softcut.buffer_write_stereo(full_path, 0, loop_dur)
-  softcut.buffer_read_stereo(full_path, 0, loop_dur, loop_dur)
-  local num_beats = params:get("num_beats")
-  params:set("num_beats", num_beats * 2)
-  -- Sleep is there because it takes a bit for the file system to recognize the file exists
-  -- Also, os.remove doesn't work...
-  os.execute("sleep 0.2; rm "..full_path)
 end
