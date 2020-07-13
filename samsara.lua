@@ -12,6 +12,7 @@
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
 --
+-- v1.0.0 @21echoes
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
