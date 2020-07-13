@@ -37,8 +37,9 @@ local MAX_NUM_BEATS = 64
 local SCREEN_FRAMERATE = 15
 local screen_refresh_metro
 local is_screen_dirty = false
-local alert
-local alert_dismiss_metro
+local ext_clock_alert
+local ext_clock_alert_dismiss_metro
+local clear_confirm
 
 function init()
   init_params()
@@ -131,7 +132,7 @@ function enc(n, delta)
       if params:get("clock_source") == 1 then
         params:delta("clock_tempo", delta)
       else
-        show_external_clock_alert()
+        show_ext_clock_alert()
       end
     else
       params:delta("num_beats", delta)
@@ -149,6 +150,12 @@ end
 
 local just_doubled_buffer = false
 function key(n, z)
+  -- Any keypress that is not K3 while showing the clear confirm dialog dismisses the dialog
+  if clear_confirm ~= nil and n ~= 3 then
+    clear_confirm = nil
+    is_screen_dirty = true
+  end
+
   if z == 1 then
     if held_key == nil then
       held_key = n
@@ -159,7 +166,15 @@ function key(n, z)
       end
       return
     elseif held_key == 1 and n == 3 then
-      softcut.buffer_clear()
+      if ext_clock_alert == nil then
+        if clear_confirm ~= nil then
+          softcut.buffer_clear()
+          clear_confirm = nil
+        else
+          clear_confirm = Alert.new({"Continue holding K1", "and press K3 again", "to erase everything"})
+        end
+        is_screen_dirty = true
+      end
       return
     end
   elseif held_key == n and z == 0 then
@@ -177,7 +192,7 @@ function key(n, z)
         tap_tempo_square = util.time()
         is_screen_dirty = true
       else
-        show_external_clock_alert()
+        show_ext_clock_alert()
       end
     end
     return short_circuit_value
@@ -227,8 +242,14 @@ end
 function redraw()
   screen.clear()
 
-  if alert ~= nil then
-    alert:redraw()
+  if ext_clock_alert ~= nil then
+    ext_clock_alert:redraw()
+    screen.update()
+    return
+  end
+
+  if clear_confirm ~= nil then
+    clear_confirm:redraw()
     screen.update()
     return
   end
@@ -288,22 +309,22 @@ function redraw()
   screen.update()
 end
 
-function show_external_clock_alert()
-  if alert ~= nil then
+function show_ext_clock_alert()
+  if ext_clock_alert ~= nil then
     return
   end
   local source = ({"", "MIDI", "Link", "crow"})[params:get("clock_source")]
-  alert = Alert.new({"Tempo is following "..source, "", "Use params menu to change", "your clock settings"})
-  alert_dismiss_metro = metro.init(dismiss_alert, 2, 1)
-  alert_dismiss_metro:start()
+  ext_clock_alert = Alert.new({"Tempo is following "..source, "", "Use params menu to change", "your clock settings"})
+  ext_clock_alert_dismiss_metro = metro.init(dismiss_ext_clock_alert, 2, 1)
+  ext_clock_alert_dismiss_metro:start()
   is_screen_dirty = true
 end
 
-function dismiss_alert()
-  alert = nil
-  if alert_dismiss_metro then
-    metro.free(alert_dismiss_metro.id)
-    alert_dismiss_metro = nil
+function dismiss_ext_clock_alert()
+  ext_clock_alert = nil
+  if ext_clock_alert_dismiss_metro then
+    metro.free(ext_clock_alert_dismiss_metro.id)
+    ext_clock_alert_dismiss_metro = nil
   end
   is_screen_dirty = true
 end
@@ -415,8 +436,9 @@ end
 function double_buffer()
   -- Duplicate the buffer immediately after the current buffer ends
   local full_path = "/home/we/dust/code/samsara/tmp.wav"
-  softcut.buffer_write_stereo(full_path, 0, loop_dur)
-  softcut.buffer_read_stereo(full_path, 0, loop_dur, loop_dur)
+  -- Write an additional second to disk to get nice cross-fade behavior
+  softcut.buffer_write_stereo(full_path, 0, loop_dur + 1)
+  softcut.buffer_read_stereo(full_path, 0, loop_dur, loop_dur + 1)
   local num_beats = params:get("num_beats")
   params:set("num_beats", num_beats * 2)
   -- Sleep is there because it takes a bit for the file system to recognize the file exists
@@ -433,12 +455,13 @@ function cleanup()
     metro.free(one_shot_metro.id)
     one_shot_metro = nil
   end
-  if alert_dismiss_metro then
-    metro.free(alert_dismiss_metro.id)
-    alert_dismiss_metro = nil
+  if ext_clock_alert_dismiss_metro then
+    metro.free(ext_clock_alert_dismiss_metro.id)
+    ext_clock_alert_dismiss_metro = nil
   end
   tap_tempo = nil
-  alert = nil
+  ext_clock_alert = nil
+  clear_confirm = nil
 
   -- Restore prior levels
   for level_param, level in ipairs(initial_levels) do
