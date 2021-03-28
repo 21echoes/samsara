@@ -11,6 +11,8 @@
 -- Hold K2+tap K3: Tap tempo
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
+-- Hold K3 then hold K2:
+--  Silence buffer at playhead
 --
 -- v1.0.0 @21echoes
 
@@ -41,6 +43,7 @@ local is_screen_dirty = false
 local ext_clock_alert
 local ext_clock_alert_dismiss_metro
 local clear_confirm
+local prior_prelevel = nil
 
 function init()
   init_params()
@@ -149,6 +152,18 @@ function enc(n, delta)
   end
 end
 
+function punch_in_silence(enable)
+  if enable then
+    prior_prelevel = params:get("pre_level")
+    params:set("pre_level", 0)
+  else
+    if prior_prelevel ~= nil then
+      params:set("pre_level", prior_prelevel)
+      prior_prelevel = nil
+    end
+  end
+end
+
 local just_doubled_buffer = false
 function key(n, z)
   -- Any keypress that is not K3 while showing the clear confirm dialog dismisses the dialog
@@ -177,9 +192,22 @@ function key(n, z)
         is_screen_dirty = true
       end
       return
+    elseif held_key == 3 and n == 2 then
+      punch_in_silence(true)
+      return
     end
   elseif held_key == n and z == 0 then
     held_key = nil
+    -- Releasing K3 while holding K3 + K2
+    if prior_prelevel ~= nil then
+      punch_in_silence(false)
+      return
+    end
+  end
+  -- Releasing K2 while holding K3
+  if held_key == 3 and n == 2 and z == 0 then
+    punch_in_silence(false)
+    return
   end
 
   -- Hold K2 + Tap K3 means tap tempo
@@ -199,7 +227,7 @@ function key(n, z)
     return short_circuit_value
   end
 
-  -- For K2 we listen to key-up (key-down starts alt mode)
+  -- For K2 (while K3 not held) we listen to key-up (key-down starts alt mode)
   if n==2 and z==0 then
     if just_doubled_buffer then
       just_doubled_buffer = false
