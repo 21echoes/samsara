@@ -6,17 +6,21 @@
 -- Hold K2+turn E1: Tempo
 -- E2: Loop preserve rate
 -- E3: Rec. mode (loop/one-shot)
+-- Hold K2+turn E3: Click (on/off)
 -- K2: Start/pause playback
 -- K3: Arm/disarm recording
 -- Hold K2+tap K3: Tap tempo
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
 --
--- v1.0.0 @21echoes
+-- v1.1.0 @21echoes
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
 local Alert = include("lib/alert")
+
+-- Use the PolyPerc engine for the click track
+engine.name = 'PolyPerc'
 
 local playing = 1
 local rec_level = 1.0
@@ -41,11 +45,13 @@ local is_screen_dirty = false
 local ext_clock_alert
 local ext_clock_alert_dismiss_metro
 local clear_confirm
+local click_track_square
 
 function init()
   init_params()
   init_softcut()
   init_ui_metro()
+  init_click_track()
 end
 
 function init_params()
@@ -82,6 +88,13 @@ function init_params()
     default=(params:get("monitor_mode") == 1 and 2 or 1),
     action=function(value) set_num_input_channels(value) end
   }
+  params:add {
+    id="click_track_enabled",
+    name="Click Track",
+    type="option",
+    options={"Disabled", "Enabled"},
+    default=1,
+  }
   local default_tempo_action = params:lookup_param("clock_tempo").action
   params:set_action("clock_tempo", function(value)
     default_tempo_action(value)
@@ -95,8 +108,12 @@ function init_softcut()
   for i, level_param in ipairs(modified_level_params) do
     initial_levels[level_param] = params:get(level_param)
     -- Setting 0 as it's in dBs and 0 dB is unity gain / amp of 1
-    -- TODO: confirm this does what you want
-    params:set(level_param, 0)
+    if level_param == "cut_input_eng" then
+      -- The click track uses the engine, and we don't want to record the click track to the loop
+      params:set("cut_input_eng", -math.huge)
+    else
+      params:set(level_param, 0)
+    end
   end
 
   softcut.buffer_clear()
@@ -126,6 +143,11 @@ function init_ui_metro()
   screen_refresh_metro:start(1 / SCREEN_FRAMERATE)
 end
 
+function init_click_track()
+  softcut.event_phase(click)
+  softcut.poll_start_phase()
+end
+
 function enc(n, delta)
   if n==1 then
     -- We're using tap_tempo:is_in_tap_tempo_mode as our general "alt mode"
@@ -145,7 +167,12 @@ function enc(n, delta)
     end
     params:delta("pre_level", delta)
   elseif n==3 then
-    params:delta("record_mode", delta)
+    -- We're using tap_tempo:is_in_tap_tempo_mode as our general "alt mode"
+    if tap_tempo:is_in_tap_tempo_mode() then
+      params:delta("click_track_enabled", delta)
+    else
+      params:delta("record_mode", delta)
+    end
   end
 end
 
@@ -233,6 +260,26 @@ function clock.transport.stop()
   set_playing(0)
 end
 
+function click(voice, position)
+  -- Trigger for softcut voice 1 only, only if enabled, and only if not currently tapping tempo
+  local should_trigger = voice == 1 and params:get("click_track_enabled") == 2 and not tap_tempo._tap_tempo_used
+  if should_trigger then
+    local is_smearing = false
+    if click_track_square ~= nil then
+      -- While the user is adjusting the tempo, we can get click track "smears"
+      -- as the phase callback triggers for two different quanta in quick succession
+      local time_since_last_click = util.time() - click_track_square
+      local beat_dur = (60 / params:get("clock_tempo"))
+      is_smearing = time_since_last_click < (beat_dur * 0.5)
+    end
+    if not is_smearing then
+      engine.hz(523.25)
+    end
+    click_track_square = util.time()
+    is_screen_dirty = true
+  end
+end
+
 function render_loop()
   if is_screen_dirty then
     is_screen_dirty = false
@@ -267,11 +314,19 @@ function redraw()
 
   if tap_tempo_square ~= nil then
     if (util.time() - tap_tempo_square) < 0.125 then
-      screen.rect(121, 8, 3, 3)
+      screen.rect(122, 8, 4, 4)
       screen.fill()
       is_screen_dirty = true
     else
       tap_tempo_square = nil
+    end
+  elseif click_track_square ~= nil then
+    if (util.time() - click_track_square) < 0.125 then
+      screen.rect(122, 8, 4, 4)
+      screen.fill()
+      is_screen_dirty = true
+    else
+      click_track_square = nil
     end
   end
 
@@ -378,6 +433,12 @@ end
 function set_tempo(tempo)
   local num_beats = params:get("num_beats")
   set_loop_dur(tempo, num_beats)
+
+  -- Set up the click track callback to line up with the tempo
+  local beat_dur = (60 / tempo)
+  for voice=1,2 do
+    softcut.phase_quant(voice, beat_dur)
+  end
 end
 
 function set_loop_dur(tempo, num_beats)
@@ -421,7 +482,7 @@ end
 function set_num_input_channels(value)
   local coerced_value = value
   if value == "Stereo" then coerced_value = 2 elseif value == "Mono" then coerced_value = 1 end
-  if value == 2 then
+  if coerced_value == 2 then
     softcut.level_input_cut(1, 1, 1.0)
     softcut.level_input_cut(1, 2, 0.0)
     softcut.level_input_cut(2, 1, 0.0)
@@ -470,4 +531,5 @@ function cleanup()
   end
   modified_level_params = nil
   initial_levels = nil
+  softcut.poll_stop_phase()
 end
