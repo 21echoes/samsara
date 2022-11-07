@@ -140,6 +140,10 @@ end
 function init_ui_metro()
   -- Render loop
   screen_refresh_metro = metro.init()
+  if not screen_refresh_metro then
+    print('ERROR: Unable to initialize screen render loop')
+    return
+  end
   screen_refresh_metro.event = screen_frame_tick
   screen_refresh_metro:start(1 / SCREEN_FRAMERATE)
 end
@@ -376,7 +380,11 @@ function show_ext_clock_alert()
   local source = ({"", "MIDI", "Link", "crow"})[params:get("clock_source")]
   ext_clock_alert = Alert.new({"Tempo is following "..source, "", "Use params menu to change", "your clock settings"})
   ext_clock_alert_dismiss_metro = metro.init(dismiss_ext_clock_alert, 2, 1)
-  ext_clock_alert_dismiss_metro:start()
+  if ext_clock_alert_dismiss_metro then
+    ext_clock_alert_dismiss_metro:start()
+  else
+    print('ERROR: Unable to dismiss external clock alert UI')
+  end
   is_screen_dirty = true
 end
 
@@ -473,6 +481,10 @@ end
 function one_shot_start()
   set_rec_level(1.0)
   one_shot_metro = metro.init(one_shot_stop, loop_dur, 1)
+  if not one_shot_metro then
+    print('ERROR: Unable to stop one-shot recording')
+    return
+  end
   one_shot_metro:start()
 end
 
