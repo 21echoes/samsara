@@ -29,6 +29,11 @@ local one_shot_metro
 local tap_tempo = TapTempo.new()
 local tap_tempo_square
 local loop_dur
+local cur_beat
+local clock_tick_id
+local pause_beat_offset
+local pause_softcut_pos
+local resume_after_pause_id
 local held_key
 local modified_level_params = {
   "cut_input_adc",
@@ -52,7 +57,7 @@ function init()
   init_params()
   init_softcut()
   init_ui_metro()
-  init_click_track()
+  init_clock_tick()
 end
 
 function init_params()
@@ -125,7 +130,7 @@ function init_softcut()
     softcut.level(voice, 1.0)
     softcut.pan(voice, voice == 1 and -1.0 or 1.0)
     softcut.rate(voice, 1)
-    softcut.loop(voice, 1)
+    softcut.loop(voice, 0)
     softcut.loop_start(voice, 0)
     softcut.position(voice, 0)
     softcut.level_input_cut(voice, voice, 1.0)
@@ -148,9 +153,9 @@ function init_ui_metro()
   screen_refresh_metro:start(1 / SCREEN_FRAMERATE)
 end
 
-function init_click_track()
-  softcut.event_phase(click)
-  softcut.poll_start_phase()
+function init_clock_tick()
+  cur_beat = 0
+  clock_tick_id = clock.run(clock_tick)
 end
 
 -- Interaction hooks
@@ -268,24 +273,41 @@ function clock.transport.stop()
 end
 
 -- Metro / Clock callbacks
-function play_click(voice, position)
-  -- Trigger for softcut voice 1 only, only if enabled, and only if not currently tapping tempo
-  local should_trigger = voice == 1 and params:get("click_track_enabled") == 2 and not tap_tempo._tap_tempo_used
-  if should_trigger then
-    local is_smearing = false
-    if click_track_square ~= nil then
-      -- While the user is adjusting the tempo, we can get click track "smears"
-      -- as the phase callback triggers for two different quanta in quick succession
-      local time_since_last_click = util.time() - click_track_square
-      local beat_dur = (60 / params:get("clock_tempo"))
-      is_smearing = time_since_last_click < (beat_dur * 0.5)
+function clock_tick()
+  while true do
+    clock.sync(1)
+    if playing == 1 then
+      local num_beats = params:get("num_beats")
+      cur_beat = (cur_beat + 1) % num_beats
+
+      if cur_beat == 0 then
+        softcut.position(1, 0)
+        softcut.voice_sync(2, 1, 0)
+      end
+
+      -- Play click only if enabled, and only if not currently tapping tempo
+      local should_play_click = params:get("click_track_enabled") == 2 and not tap_tempo._tap_tempo_used
+      if should_play_click then
+        play_click()
+      end
     end
-    if not is_smearing then
-      engine.hz(523.25)
-    end
-    click_track_square = util.time()
-    is_screen_dirty = true
   end
+end
+
+function play_click()
+  -- While the user is adjusting the tempo, we can get click track "smears" where it triggers in rapid succession
+  -- So we set a lower bound on how quickly back to back clicks can sound
+  local is_smearing = false
+  if click_track_square ~= nil then
+    local time_since_last_click = util.time() - click_track_square
+    local beat_dur = (60 / params:get("clock_tempo"))
+    is_smearing = time_since_last_click < (beat_dur * 0.5)
+  end
+  if not is_smearing then
+    engine.hz(523.25)
+  end
+  click_track_square = util.time()
+  is_screen_dirty = true
 end
 
 function screen_frame_tick()
@@ -399,17 +421,79 @@ end
 
 -- Setters
 function set_playing(value)
-  playing = value
-  for voice=1,2 do
-    if playing == 0 then
+  -- Okay, so there's a lot of hackiness in this function basically working around two related bugs:
+  -- inside clock.run coroutines, softcut.enable doesn't resume playhead movement
+  -- You can make it actually resume by calling softcut.position inside that same coroutine,
+  -- but it doesn't actually put the playhead at that requested position!
+  --
+  -- So instead, we softcut.enable outside of the coroutine, but keep levels at 0
+  -- We then set the position to some "preroll" amount, so that when the coroutine waits
+  -- and then turns back up the levels, we're at the expected playhead position.
+  -- This has one other complication, which is we can't set the position to < 0 for "preroll",
+  -- so we have to set a metro to wait a bit before we set position to 0 to make it actually line up. UGH
+  if resume_after_pause_id ~= nil then
+    return
+  end
+  if value == 0 then
+    pause_beat_offset = clock.get_beats() % 1
+    pause_softcut_pos = (cur_beat + pause_beat_offset) * clock.get_beat_sec()
+    for voice=1,2 do
       softcut.rec_level(voice, 0.0)
       softcut.level(voice, 0.0)
-    else
-      softcut.rec_level(voice, rec_level)
-      softcut.level(voice, 1.0)
+      softcut.enable(voice, 0)
     end
-    softcut.enable(voice, playing)
+    playing = 0
+  else
+    if pause_beat_offset == nil then
+      _resume_playing()
+    else
+      -- Calculate "preroll" position so that we can synchronously softcut.enable
+      -- before we use a coroutine to wait a bit before we actually turn up the voice levels to truly unpause
+      local current_offset = clock.get_beats() % 1
+      local beats_to_wait = ((pause_beat_offset - current_offset) + 1) % 1
+      local time_to_wait = beats_to_wait * clock.get_beat_sec()
+      local new_position = pause_softcut_pos - time_to_wait
+      if new_position >= 0 then
+        softcut.position(1, new_position)
+        softcut.voice_sync(2, 1, 0)
+      else
+        -- We can't set the position less than zero, so just wait for the preroll *then* set the position
+        softcut.position(1, 0)
+        softcut.voice_sync(2, 1, 0)
+        unpause_metro = metro.init(function()
+          softcut.position(1, 0)
+          softcut.voice_sync(2, 1, 0)
+        end, -new_position, 1)
+        if unpause_metro then
+          unpause_metro:start()
+        else
+          print('ERROR: Unable to properly re-sync a pause within the first beat')
+        end
+      end
+      for voice=1,2 do
+        softcut.enable(voice, 1)
+      end
+      resume_after_pause_id = clock.run(function()
+        if current_offset > pause_beat_offset then
+          clock.sync(1)
+        end
+        clock.sync(pause_beat_offset)
+        _resume_playing()
+      end)
+    end
   end
+  is_screen_dirty = true
+end
+
+function _resume_playing()
+  for voice=1,2 do
+    softcut.rec_level(voice, rec_level)
+    softcut.level(voice, 1.0)
+  end
+  pause_softcut_pos = nil
+  pause_beat_offset = nil
+  resume_after_pause_id = nil
+  playing = 1
   is_screen_dirty = true
 end
 
@@ -441,26 +525,23 @@ end
 function set_num_beats(num_beats)
   local tempo = params:get("clock_tempo")
   set_loop_dur(tempo, num_beats)
+  is_screen_dirty = true
 end
 
 function set_tempo(tempo)
   local num_beats = params:get("num_beats")
   set_loop_dur(tempo, num_beats)
-
-  -- Set up the click track callback to line up with the tempo
-  local beat_dur = (60 / tempo)
-  for voice=1,2 do
-    softcut.phase_quant(voice, beat_dur)
-  end
+  is_screen_dirty = true
 end
 
 function set_loop_dur(tempo, num_beats)
   loop_dur = (num_beats/tempo) * 60
   for voice=1,2 do
-    softcut.loop_end(voice, loop_dur)
+    -- Not really clear why we have to set loop(0) and loop_end(large_number) to get this all working :shrug:
+    -- You'd think without messing with the loop settings at all, we could have a play head that runs
+    -- and which we can manipulate its position
+    softcut.loop_end(voice, loop_dur * 2)
   end
-  -- TODO: should we clear the buffer outside the loop, now? if not now, ever?
-  is_screen_dirty = true
 end
 
 function set_record_mode(value)
@@ -539,6 +620,14 @@ function cleanup()
     metro.free(ext_clock_alert_dismiss_metro.id)
     ext_clock_alert_dismiss_metro = nil
   end
+  if clock_tick_id then
+    clock.cancel(clock_tick_id)
+    clock_tick_id = nil
+  end
+  if resume_after_pause_id then
+    clock.cancel(resume_after_pause_id)
+    resume_after_pause_id = nil
+  end
   tap_tempo = nil
   ext_clock_alert = nil
   clear_confirm = nil
@@ -549,5 +638,4 @@ function cleanup()
   end
   modified_level_params = nil
   initial_levels = nil
-  softcut.poll_stop_phase()
 end
