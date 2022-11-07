@@ -47,6 +47,7 @@ local ext_clock_alert_dismiss_metro
 local clear_confirm
 local click_track_square
 
+-- Initialization
 function init()
   init_params()
   init_softcut()
@@ -139,7 +140,7 @@ end
 function init_ui_metro()
   -- Render loop
   screen_refresh_metro = metro.init()
-  screen_refresh_metro.event = render_loop
+  screen_refresh_metro.event = screen_frame_tick
   screen_refresh_metro:start(1 / SCREEN_FRAMERATE)
 end
 
@@ -148,6 +149,7 @@ function init_click_track()
   softcut.poll_start_phase()
 end
 
+-- Interaction hooks
 function enc(n, delta)
   if n==1 then
     -- We're using tap_tempo:is_in_tap_tempo_mode as our general "alt mode"
@@ -252,6 +254,7 @@ function key(n, z)
   end
 end
 
+-- Clock hooks
 function clock.transport.start()
   set_playing(1)
 end
@@ -260,7 +263,8 @@ function clock.transport.stop()
   set_playing(0)
 end
 
-function click(voice, position)
+-- Metro / Clock callbacks
+function play_click(voice, position)
   -- Trigger for softcut voice 1 only, only if enabled, and only if not currently tapping tempo
   local should_trigger = voice == 1 and params:get("click_track_enabled") == 2 and not tap_tempo._tap_tempo_used
   if should_trigger then
@@ -280,7 +284,7 @@ function click(voice, position)
   end
 end
 
-function render_loop()
+function screen_frame_tick()
   if is_screen_dirty then
     is_screen_dirty = false
     redraw()
@@ -385,6 +389,7 @@ function dismiss_ext_clock_alert()
   is_screen_dirty = true
 end
 
+-- Setters
 function set_playing(value)
   playing = value
   for voice=1,2 do
@@ -508,6 +513,7 @@ function double_buffer()
   os.execute("sleep 0.2; rm "..full_path)
 end
 
+-- Cleanup
 function cleanup()
   if screen_refresh_metro then
     metro.free(screen_refresh_metro.id)
