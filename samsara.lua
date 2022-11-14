@@ -278,11 +278,12 @@ function clock_tick()
     clock.sync(1)
     if playing == 1 then
       local num_beats = params:get("num_beats")
-      cur_beat = (cur_beat + 1) % num_beats
-
-      if cur_beat == 0 then
-        softcut.position(1, 0)
-        softcut.voice_sync(2, 1, 0)
+      cur_beat = (cur_beat + 1)
+      if cur_beat >= num_beats then
+        cur_beat = cur_beat % num_beats
+        local new_position = cur_beat * clock.get_beat_sec()
+        softcut.position(1, new_position)
+        softcut.voice_sync(2, 1, new_position)
       end
 
       -- Play click only if enabled, and only if not currently tapping tempo
@@ -290,6 +291,11 @@ function clock_tick()
       if should_play_click then
         play_click()
       end
+    end
+
+    -- For external tempos, redraw the screen in case it's changed
+    if params:get("clock_source") ~= 1 then
+      is_screen_dirty = true
     end
   end
 end
