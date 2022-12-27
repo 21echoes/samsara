@@ -65,7 +65,7 @@ function init()
 end
 
 function init_params()
-  params:add_separator()
+  params:add_separator('samsara')
   params:add {
     id="playing",
     name="Playing?",
