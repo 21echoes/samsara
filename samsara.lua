@@ -13,14 +13,18 @@
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
 --
--- v1.3.0 @21echoes
+-- v1.4.0 @21echoes
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
 local Alert = include("lib/alert")
+local Arcify = include("lib/arcify")
 
 -- Use the PolyPerc engine for the click track
 engine.name = 'PolyPerc'
+
+local arc_device = arc.connect()
+local arcify = Arcify.new(arc_device, false)
 
 local playing = 1
 local rec_level = 1.0
@@ -61,19 +65,21 @@ function init()
 end
 
 function init_params()
-  params:add_separator()
+  params:add_separator('samsara')
   params:add {
     id="playing",
     name="Playing?",
     type="binary",
     action=function(value) set_playing(value) end
   }
+  arcify:register("playing")
   params:add {
     id="recording",
     name="Recording?",
     type="binary",
     action=function(value) set_recording(value) end
   }
+  arcify:register("recording")
   params:add {
     id="pre_level",
     name="Feedback",
@@ -81,6 +87,7 @@ function init_params()
     controlspec=ControlSpec.new(0, 1, "lin", 0, 0.95, ""),
     action=function(value) set_pre_level(value) end
   }
+  arcify:register("pre_level")
   params:add {
     id="num_beats",
     name="Num Beats",
@@ -90,12 +97,14 @@ function init_params()
     default=8,
     action=function(value) set_num_beats(value) end
   }
+  arcify:register("num_beats")
   params:add {
     id="double_beats_trig",
     name="Double Num Beats!",
     type="trigger",
     action=function() double_buffer() end
   }
+  arcify:register("double_beats_trig")
   params:add {
     id="record_mode",
     name="Recording Mode",
@@ -104,6 +113,7 @@ function init_params()
     default=1,
     action=function(value) set_record_mode(value) end
   }
+  arcify:register("record_mode")
   params:add {
     id="num_input_channels",
     name="Input Mode",
@@ -112,6 +122,7 @@ function init_params()
     default=(params:get("monitor_mode") == 1 and 2 or 1),
     action=function(value) set_num_input_channels(value) end
   }
+  arcify:register("num_input_channels")
   params:add {
     id="click_track_enabled",
     name="Click Track",
@@ -119,11 +130,20 @@ function init_params()
     options={"Disabled", "Enabled"},
     default=1,
   }
+  arcify:register("click_track_enabled")
   local default_tempo_action = params:lookup_param("clock_tempo").action
   params:set_action("clock_tempo", function(value)
     default_tempo_action(value)
     set_tempo(value)
   end)
+  arcify:add_params()
+
+  arcify:map_encoder_via_params(1, "playing")
+  arcify:map_encoder_via_params(2, "recording")
+  arcify:map_encoder_via_params(3, "pre_level")
+  arcify:map_encoder_via_params(4, "num_beats")
+
+  params:read()
   params:bang()
 end
 
@@ -644,6 +664,7 @@ end
 
 -- Cleanup
 function cleanup()
+  params:write()
   if screen_refresh_metro then
     metro.free(screen_refresh_metro.id)
     screen_refresh_metro = nil
