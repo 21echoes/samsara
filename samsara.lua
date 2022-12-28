@@ -13,7 +13,7 @@
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
 --
--- v1.2.0 @21echoes
+-- v1.3.0 @21echoes
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
@@ -63,6 +63,18 @@ end
 function init_params()
   params:add_separator()
   params:add {
+    id="playing",
+    name="Playing?",
+    type="binary",
+    action=function(value) set_playing(value) end
+  }
+  params:add {
+    id="recording",
+    name="Recording?",
+    type="binary",
+    action=function(value) set_recording(value) end
+  }
+  params:add {
     id="pre_level",
     name="Feedback",
     type="control",
@@ -77,6 +89,12 @@ function init_params()
     max=MAX_NUM_BEATS,
     default=8,
     action=function(value) set_num_beats(value) end
+  }
+  params:add {
+    id="double_beats_trig",
+    name="Double Num Beats!",
+    type="trigger",
+    action=function() double_buffer() end
   }
   params:add {
     id="record_mode",
@@ -200,9 +218,7 @@ function key(n, z)
       held_key = n
     elseif held_key == 1 and n == 2 then
       just_doubled_buffer = true
-      if params:get("num_beats") < MAX_NUM_BEATS then
-        double_buffer()
-      end
+      params:set("double_beats_trig", 1)
       return
     elseif held_key == 1 and n == 3 then
       if ext_clock_alert == nil then
@@ -244,32 +260,40 @@ function key(n, z)
       return
     end
     if playing == 1 then
-      set_playing(0)
+      params:set("playing", 0)
     else
-      set_playing(1)
+      params:set("playing", 1)
     end
   elseif n==3 and z==1 then
     -- K3 means toggle recording on/off
     if rec_level == 1.0 then
-      -- Even if we're not in one-shot, this stops recording
-      one_shot_stop()
+      params:set("recording", 0)
     else
-      if params:get("record_mode") == 1 then
-        set_rec_level(1.0)
-      else
-        one_shot_start()
-      end
+      params:set("recording", 1)
+    end
+  end
+end
+
+function set_recording(value)
+  if value == 0 then
+    -- Even if we're not in one-shot, this stops recording
+    one_shot_stop()
+  else
+    if params:get("record_mode") == 1 then
+      set_rec_level(1.0)
+    else
+      one_shot_start()
     end
   end
 end
 
 -- Clock hooks
 function clock.transport.start()
-  set_playing(1)
+  params:set("playing", 1)
 end
 
 function clock.transport.stop()
-  set_playing(0)
+  params:set("playing", 0)
 end
 
 -- Metro / Clock callbacks
@@ -567,6 +591,7 @@ end
 
 function one_shot_start()
   set_rec_level(1.0)
+  params:set("recording", 1, true)
   one_shot_metro = metro.init(one_shot_stop, loop_dur, 1)
   if not one_shot_metro then
     print('ERROR: Unable to stop one-shot recording')
@@ -577,6 +602,7 @@ end
 
 function one_shot_stop()
   set_rec_level(0.0)
+  params:set("recording", 0, true)
   if one_shot_metro then
     metro.free(one_shot_metro.id)
     one_shot_metro = nil
@@ -600,13 +626,17 @@ function set_num_input_channels(value)
 end
 
 function double_buffer()
+  local num_beats = params:get("num_beats")
+  local doubled_beats = num_beats * 2
+  if doubled_beats > MAX_NUM_BEATS then
+    return
+  end
   -- Duplicate the buffer immediately after the current buffer ends
   local full_path = "/home/we/dust/code/samsara/tmp.wav"
   -- Write an additional second to disk to get nice cross-fade behavior
   softcut.buffer_write_stereo(full_path, 0, loop_dur + 1)
   softcut.buffer_read_stereo(full_path, 0, loop_dur, loop_dur + 1)
-  local num_beats = params:get("num_beats")
-  params:set("num_beats", num_beats * 2)
+  params:set("num_beats", doubled_beats)
   -- Sleep is there because it takes a bit for the file system to recognize the file exists
   -- Also, os.remove doesn't work...
   os.execute("sleep 0.2; rm "..full_path)
