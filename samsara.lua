@@ -13,7 +13,7 @@
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
 --
--- v1.4.0 @21echoes
+-- v1.4.1 @21echoes
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
@@ -62,6 +62,12 @@ function init()
   init_softcut()
   init_ui_metro()
   init_clock_tick()
+
+  -- Working around a strange bug where the param value is changed after boot without changing playback state
+  clock.run(function()
+    clock.sleep(1)
+    params:lookup_param("playing").value = playing and 1 or 0
+  end)
 end
 
 function init_params()
