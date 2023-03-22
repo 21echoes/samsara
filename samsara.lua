@@ -76,6 +76,7 @@ function init_params()
     id="playing",
     name="Playing?",
     type="binary",
+    behavior="toggle",
     action=function(value) set_playing(value) end
   }
   arcify:register("playing")
@@ -83,6 +84,7 @@ function init_params()
     id="recording",
     name="Recording?",
     type="binary",
+    behavior="toggle",
     action=function(value) set_recording(value) end
   }
   arcify:register("recording")

@@ -107,6 +107,20 @@ local function build_control_param(p, scale, is_rounded)
     return newp
 end
 
+local function build_binary_param(p)
+    local newp = {}
+
+    newp.friendly_name = p.name
+    newp.name = p.id
+    newp.min = 0
+    newp.max = 1
+    newp.scale = math.min(0.04, 2 * DEFAULT_OPTION_SCALE)
+    newp.is_rounded = true
+    newp.is_option = true
+
+    return newp
+end
+
 -- private methods
 local function draw_leds(self, num, amount, intensity)
     for i = LO_LED, amount do
@@ -288,8 +302,10 @@ function Arcify:register(name_, scale_, is_rounded_)
         self.params_[name_] = build_control_param(p, scale_, is_rounded_)
     elseif p.t == paramset.tTAPER then
         self.params_[name_] = build_taper_param(p, scale_, is_rounded_)
+    elseif p.t == paramset.tBINARY then
+        self.params_[name_] = build_binary_param(p)
     else
-        print("Referencing invalid param. May be an unsupported type. Not registered.")
+        print("Referencing invalid param. May be an unsupported type. Not registered.", p.name, p.t)
         return
     end
     table.insert(self.params_order_, name_)
