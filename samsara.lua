@@ -33,7 +33,7 @@ local one_shot_metro
 local tap_tempo = TapTempo.new()
 local tap_tempo_square
 local loop_dur
-local cur_beat
+local cur_beat = 0
 local clock_tick_id
 local pause_beat_offset
 local pause_softcut_pos
@@ -66,7 +66,7 @@ function init()
   -- Working around a strange bug where the param value is changed after boot without changing playback state
   clock.run(function()
     clock.sleep(1)
-    params:lookup_param("playing").value = playing and 1 or 0
+    params:lookup_param("playing").value = (playing > 0) and 1 or 0
   end)
 end
 
