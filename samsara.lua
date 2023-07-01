@@ -13,7 +13,7 @@
 -- Hold K1+tap K2: Double buffer
 -- Hold K1+tap K3: Clear buffer
 --
--- v1.4.2 @21echoes
+-- v1.4.3 @21echoes
 
 local ControlSpec = require "controlspec"
 local TapTempo = include("lib/tap_tempo")
@@ -58,8 +58,9 @@ local click_track_square
 
 -- Initialization
 function init()
-  init_params()
   init_softcut()
+  init_params()
+  init_softcut_params()
   init_ui_metro()
   init_clock_tick()
 
@@ -67,6 +68,7 @@ function init()
   clock.run(function()
     clock.sleep(1)
     params:lookup_param("playing").value = (playing > 0) and 1 or 0
+    params:lookup_param("recording").value = (rec_level > 0) and 1 or 0
   end)
 end
 
@@ -171,20 +173,28 @@ function init_softcut()
   softcut.buffer_clear()
 
   for voice=1,2 do
-    softcut.enable(voice, 1)
     softcut.buffer(voice, voice)
-    softcut.level(voice, 1.0)
     softcut.pan(voice, voice == 1 and -1.0 or 1.0)
     softcut.rate(voice, 1)
     softcut.loop(voice, 0)
     softcut.loop_start(voice, 0)
     softcut.position(voice, 0)
     softcut.level_input_cut(voice, voice, 1.0)
-    softcut.rec_level(voice, rec_level)
     softcut.rec(voice, 1)
   end
   for voice=1,2 do
-    softcut.play(voice, playing)
+    softcut.play(voice, 1)
+  end
+end
+
+function init_softcut_params()
+  if not playing then
+    return
+  end
+  for voice=1,2 do
+    softcut.enable(voice, 1)
+    softcut.level(voice, 1.0)
+    softcut.rec_level(voice, rec_level)
   end
 end
 
